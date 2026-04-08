@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>KSP Resonant Orbit Director [Beta v8.1]</title>
+    <style>
+        :root {
+            --bg-main: #0b0e14; --bg-panel: #161b22; --border-color: #30363d;
+            --accent-blue: #58a6ff; --accent-green: #3fb950; --accent-red: #f85149;
+            --text-main: #c9d1d9; --text-muted: #8b949e; --highlight: #f2cc60;
+        }
+        
+        /* 1. WIDEN & TRANSLATE PANELS / 2. FILL SCREEN SPACE */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg-main); color: var(--text-main); padding: 20px; font-size: 13px; line-height: 1.5; min-height: 100vh; box-sizing: border-box; margin: 0; }
+        .master-container { max-width: 96vw; margin: 0 auto; display: grid; grid-template-columns: 420px 1fr 420px; gap: 20px; min-height: calc(100vh - 40px); }
+        .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
+        
+        .ref-panel { display: flex; flex-direction: column; gap: 20px; }
+        .ref-panel .panel { flex: 1; } /* Forces Ref A and B to stretch and share vertical space evenly */
+        
+        h2 { color: var(--accent-blue); font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-top: 0; text-transform: uppercase; letter-spacing: 1px; }
+        .control-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 15px; }
+        .orbit-row { display: grid; grid-template-columns: 1fr 0.6fr 1fr; gap: 12px; margin-bottom: 15px; align-items: end; }
+        label { display: block; color: var(--text-muted); font-size: 10px; text-transform: uppercase; margin-bottom: 5px; font-weight: 600; }
+        select, input { width: 100%; background: var(--bg-main); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px; border-radius: 4px; box-sizing: border-box; transition: border 0.2s; }
+        select:focus, input:focus { border-color: var(--accent-blue); outline: none; }
+        
+        .toggle-group { display: flex; background: var(--bg-main); padding: 3px; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 15px; }
+        .toggle-btn { flex: 1; padding: 8px; text-align: center; cursor: pointer; font-size: 10px; border-radius: 4px; color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
+        .toggle-btn.active { background: var(--accent-blue); color: white; }
+        .toggle-btn.mod-active { background: var(--accent-green); color: white; }
+        
+        /* Flexes the deployment results so it pushes the update button to the absolute bottom of the left column */
+        .results { background: #0d1117; border-radius: 6px; padding: 15px; margin-top: 15px; border-left: 4px solid var(--accent-green); flex: 1; }
+        .ref-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #30363d; padding-bottom: 4px; }
+        .highlight { color: var(--highlight); font-family: "SFMono-Regular", Consolas, monospace; font-weight: bold; }
+        .section-header { font-size: 10px; color: var(--accent-blue); margin: 20px 0 10px 0; text-transform: uppercase; font-weight: 800; border-bottom: 1px solid #30363d; padding-bottom: 3px;}
+        
+        /* Forces the canvas wrapper to fill all available vertical space left over by the top controls */
+        .canvas-container { background: #000; border-radius: 6px; padding: 15px; display: flex; justify-content: center; align-items: center; border: 1px solid var(--border-color); flex: 1; min-height: 400px; margin-top: auto; }
+        .update-btn { width: 100%; padding: 12px; background: var(--accent-blue); border: none; border-radius: 4px; color: white; font-weight: bold; text-transform: uppercase; cursor: pointer; margin-top: 15px; }
+        .update-btn:hover { background: #478edb; }
+    </style>
+</head>
+<body>
+
+<div class="master-container">
+    <div class="panel">
+        <h2>⌖ Parent Body Info</h2>
+        <label>Select Parent Body</label>
+        <select id="parentSelect" onchange="renderInfo('parent'); calculate();" style="margin-bottom: 15px;"></select>
+        <div id="parentRef"></div>
+
+        <div id="calcResults" class="results"></div>
+        <button class="update-btn" onclick="calculate()">⟳ Update Calculation</button>
+    </div>
+
+    <div class="panel">
+        <h2>✦ Resonant Orbit Calculator</h2>
+        <div class="toggle-group">
+            <div class="toggle-btn mod-active" id="mod-stock">Stock</div>
+            <div class="toggle-btn" id="mod-opm" onclick="toggleMod('opm')">Outer Planets</div>
+            <div class="toggle-btn" id="mod-kcal" onclick="toggleMod('kcal')">Kcalbeloh</div>
+        </div>
+
+        <div class="control-group">
+            <div><label>Scale</label><select id="scaleSelect" onchange="updateAll()">
+                <option value="1">Stock (1x)</option><option value="2.5">JNSQ (2.5x)</option><option value="10">RSS (10x)</option>
+            </select></div>
+            <div><label>Units</label><select id="unitSelect" onchange="updateAll()">
+                <option value="1">m</option><option value="1000" selected>km</option><option value="1000000">Mm</option>
+            </select></div>
+            <div><label>Vessel Ant (Mm)</label><input type="number" id="antVessel" value="5" oninput="calculate()"></div>
+            <div><label>DSN Level</label><select id="antDSN" onchange="calculate()">
+                <option value="2000000000">L1 (2 Gm)</option>
+                <option value="50000000000">L2 (50 Gm)</option>
+                <option value="250000000000" selected>L3 (250 Gm)</option>
+            </select></div>
+        </div>
+
+        <label>Datum Reference</label>
+        <div class="toggle-group">
+            <div class="toggle-btn active" id="datum-asl" onclick="setDatum('asl')">ASL (Altitude)</div>
+            <div class="toggle-btn" id="datum-cog" onclick="setDatum('cog')">CoG (Radius)</div>
+        </div>
+
+        <div class="orbit-row">
+            <div><label id="apLabel">Target Ap (Alt)</label><input type="number" id="apIn" value="2863.33" oninput="calculate()"></div>
+            <div><label>Sat Count</label><input type="number" id="vessels" value="3" oninput="calculate()"></div>
+            <div><label id="peLabel">Target Pe (Alt)</label><input type="number" id="peIn" value="2863.33" oninput="calculate()"></div>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label>Maneuver Logic</label>
+            <select id="manType" onchange="calculate()">
+                <option value="dive">Resonant Dive (Lower PE to Deploy)</option>
+                <option value="soar">Resonant Soar (Raise AP to Deploy)</option>
+            </select>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="orbitCanvas" width="650" height="650" style="max-width: 100%; height: auto; max-height: 100%; object-fit: contain;"></canvas>
+        </div>
+    </div>
+
+    <div class="ref-panel">
+        <div class="panel">
+            <h2>⌖ Ref Body A</h2>
+            <select id="targetASelect" onchange="renderInfo('targetA');" style="margin-bottom: 10px;"></select>
+            <div id="targetARef"></div>
+        </div>
+        <div class="panel">
+            <h2>⌖ Ref Body B</h2>
+            <select id="targetBSelect" onchange="renderInfo('targetB');" style="margin-bottom: 10px;"></select>
+            <div id="targetBRef"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentDatum = 'asl';
+let activeMods = { opm: false, kcal: false };
+let lastUD = 1000; // Tracking last unit for input scaling
+
+const bodyData = {
+    stock: {
+        "Stars": {
+            "Sun (Kerbol)": { r: 261600000, mu: 1.1723328e18, p: 432000, atmo: 600000, soi: 1e16, ap: 0, pe: 0, inc: 0 }
+        },
+        "Planets": {
+            "Moho": { r: 250000, mu: 1.6860938e11, p: 1210000, atmo: 0, soi: 9646663, ap: 6315769241, pe: 4210526315, inc: 7 },
+            "Eve": { r: 700000, mu: 8.1717302e12, p: 80500, atmo: 90000, soi: 85109365, ap: 9931011387, pe: 9734330517, inc: 2.1 },
+            "Kerbin": { r: 600000, mu: 3.5316000e12, p: 21549.425, atmo: 70000, soi: 84159286, ap: 13599840256, pe: 13599840256, inc: 0 },
+            "Duna": { r: 320000, mu: 3.0136321e11, p: 65517.859, atmo: 50000, soi: 47921949, ap: 21783289223, pe: 19661413277, inc: 0.06 },
+            "Dres": { r: 138000, mu: 2.1484489e10, p: 34800, atmo: 0, soi: 32832840, ap: 46157013401, pe: 34582986599, inc: 5 },
+            "Jool": { r: 6000000, mu: 2.8252800e14, p: 36000, atmo: 200000, soi: 2455985191, ap: 72212238387, pe: 65334881613, inc: 1.3 },
+            "Eeloo (Stock)": { r: 210000, mu: 7.4410815e10, p: 19460, atmo: 0, soi: 119082941, ap: 113549713201, pe: 66687313385, inc: 6.15 }
+        },
+        "Moons": {
+            "Mun": { r: 200000, mu: 4.9027990e11, p: 138984.38, atmo: 0, soi: 2429559, ap: 12000000, pe: 12000000, inc: 0 },
+            "Minmus": { r: 60000, mu: 1.7658000e10, p: 40400, atmo: 0, soi: 2247428, ap: 47000000, pe: 47000000, inc: 6 },
+            "Gilly": { r: 13000, mu: 8289449.8, p: 28255, atmo: 0, soi: 126123, ap: 48825000, pe: 14175000, inc: 12 },
+            "Ike": { r: 130000, mu: 1.8568369e10, p: 65517.859, atmo: 0, soi: 1049598, ap: 3310000, pe: 3090000, inc: 0.2 },
+            "Laythe": { r: 500000, mu: 1.9620000e12, p: 52980.825, atmo: 50000, soi: 3723645, ap: 27184000, pe: 27184000, inc: 0 },
+            "Vall": { r: 300000, mu: 2.0748150e11, p: 105962.09, atmo: 0, soi: 2406401, ap: 43152000, pe: 43152000, inc: 0 },
+            "Tylo": { r: 600000, mu: 2.8225023e12, p: 211926.72, atmo: 0, soi: 10856518, ap: 68500000, pe: 68500000, inc: 0.025 },
+            "Bop": { r: 65000, mu: 2.4868349e9, p: 544507.43, atmo: 0, soi: 1221060, ap: 153070000, pe: 103930000, inc: 15 },
+            "Pol": { r: 44000, mu: 7.2133320e8, p: 901902.62, atmo: 0, soi: 1042138, ap: 210330000, pe: 149270000, inc: 4.25 }
+        }
+    },
+    opm: {
+        "OPM Planets": {
+            "Sarnus": { r: 5300000, mu: 2.0534e14, p: 35000, atmo: 188000, soi: 5.2e9, ap: 1.34e11, pe: 1.21e11, inc: 2.02 },
+            "Urlum": { r: 2150000, mu: 5.122e13, p: 28000, atmo: 155000, soi: 4.5e9, ap: 3.01e11, pe: 2.76e11, inc: 1.81 },
+            "Neidon": { r: 2145000, mu: 6.241e13, p: 30000, atmo: 160000, soi: 6.1e9, ap: 4.65e11, pe: 4.41e11, inc: 0.52 },
+            "Plock": { r: 185000, mu: 4.522e10, p: 18000, atmo: 0, soi: 9.8e7, ap: 7.42e11, pe: 5.13e11, inc: 3.51 }
+        },
+        "OPM Moons": {
+            "Hale": { r: 6000, mu: 1.233e8, p: 15000, atmo: 0, soi: 35000, ap: 19500000, pe: 19500000, inc: 0.1 },
+            "Ovok": { r: 26000, mu: 1.544e9, p: 25000, atmo: 0, soi: 75000, ap: 28500000, pe: 28500000, inc: 0 },
+            "Eeloo (Sarnus)": { r: 210000, mu: 7.4410815e10, p: 19460, atmo: 0, soi: 1.1e8, ap: 1.05e8, pe: 9.8e7, inc: 0.01 },
+            "Tekto": { r: 280000, mu: 8.422e11, p: 85000, atmo: 95000, soi: 1.25e7, ap: 9.84e7, pe: 9.21e7, inc: 1.5 },
+            "Slate": { r: 540000, mu: 1.055e12, p: 65000, atmo: 0, soi: 2.58e6, ap: 7.63e7, pe: 7.34e7, inc: 0.5 },
+            "Wal": { r: 370000, mu: 3.044e12, p: 115000, atmo: 0, soi: 4.55e6, ap: 1.44e8, pe: 1.44e8, inc: 0.8 },
+            "Thatmo": { r: 250000, mu: 3.222e11, p: 21000, atmo: 45000, soi: 1.02e7, ap: 4.55e7, pe: 4.55e7, inc: 1.5 },
+            "Karen": { r: 85000, mu: 1.244e9, p: 12000, atmo: 0, soi: 5.2e6, ap: 1.55e7, pe: 1.55e7, inc: 0.5 },
+            "Polta": { r: 220000, mu: 7.441e10, p: 19460, atmo: 0, soi: 1950000, ap: 1.02e8, pe: 1.02e8, inc: 0.01 },
+            "Tal": { r: 25000, mu: 1.522e8, p: 12000, atmo: 0, soi: 65000, ap: 1.34e7, pe: 1.34e7, inc: 0.1 },
+            "Nissee": { r: 30000, mu: 2.255e8, p: 45000, atmo: 0, soi: 2550000, ap: 4.58e8, pe: 4.22e8, inc: 10.5 }
+        }
+    },
+    kcal: {
+        "Stars": {
+            "Maelg": { r: 500000, mu: 2.544e14, p: 45000, atmo: 100000, soi: 2.2e10, ap: 1.55e12, pe: 1.55e12, inc: 0.1 },
+            "Sunorc": { r: 400000, mu: 1.822e14, p: 38000, atmo: 80000, soi: 1.52e10, ap: 2.22e12, pe: 2.22e12, inc: 0.2 },
+            "Aralc-A": { r: 300000, mu: 1.244e14, p: 30000, atmo: 60000, soi: 8.2e9, ap: 1.84e12, pe: 1.84e12, inc: 0.1 },
+            "Aralc-B": { r: 280000, mu: 1.022e14, p: 28000, atmo: 55000, soi: 7.4e9, ap: 1.84e12, pe: 1.84e12, inc: 0.1 }
+        },
+        "Binary Systems": {
+            "Simetra-Simeht": { r: 10000, mu: 3.824e14, p: 93600, atmo: 0, soi: 767400, ap: 1.93e10, pe: 1.74e10, inc: 1.74 }
+        },
+        "Singularities": {
+            "Kcalbeloh": { r: 100000, mu: 5.0e18, p: 0, atmo: 1e6, soi: 2e13, ap: 0, pe: 0, inc: 0 },
+            "Wormhole (Stock)": { r: 10000, mu: 1.0e11, p: 0, atmo: 5000, soi: 5.4e8, ap: 1.34e11, pe: 1.34e11, inc: 0 },
+            "WH-3141-A": { r: 10000, mu: 1.2e11, p: 0, atmo: 5000, soi: 8.2e8, ap: 1.54e11, pe: 1.54e11, inc: 0 },
+            "WH-3141-B": { r: 10000, mu: 1.5e11, p: 0, atmo: 5000, soi: 1.2e9, ap: 2.2e10, pe: 2.2e10, inc: 5 }
+        },
+        "Planets": {
+            "Anneheg": { r: 120000, mu: 1.822e10, p: 19000, atmo: 28000, soi: 1.22e6, ap: 1.54e7, pe: 1.54e7, inc: 0.1 },
+            "Ahtpan": { r: 120000, mu: 5.2e10, p: 25000, atmo: 0, soi: 5.4e6, ap: 1.75e8, pe: 1.75e8, inc: 1.1 },
+            "Anehta": { r: 50000, mu: 8.4e9, p: 15000, atmo: 0, soi: 2.2e6, ap: 4.55e8, pe: 4.55e8, inc: 1.5 },
+            "Efil": { r: 580000, mu: 3.244e12, p: 21000, atmo: 70000, soi: 8.2e7, ap: 1.34e10, pe: 1.34e10, inc: 0 },
+            "Iomena": { r: 150000, mu: 2.522e10, p: 22000, atmo: 45000, soi: 820000, ap: 1.55e8, pe: 1.45e8, inc: 0.5 },
+            "Rouqea": { r: 35000, mu: 2.244e8, p: 15000, atmo: 10000, soi: 85000, ap: 6.2e7, pe: 6.2e7, inc: 0.2 },
+            "Mehtna": { r: 30000, mu: 2.1e8, p: 14000, atmo: 0, soi: 75000, ap: 1.95e7, pe: 1.95e7, inc: 0.1 },
+            "Meiuqer": { r: 18000, mu: 5.2e7, p: 9000, atmo: 0, soi: 35000, ap: 1.95e6, pe: 1.95e6, inc: 0.05 },
+            "Onrefni": { r: 25000, mu: 1.544e8, p: 12000, atmo: 5000, soi: 65000, ap: 1.34e7, pe: 1.34e7, inc: 0.1 },
+            "Sedah": { r: 8500000, mu: 4.2e15, p: 42000, atmo: 350000, soi: 3.2e9, ap: 4.2e9, pe: 4.2e9, inc: 0.1 },
+            "Sera": { r: 450000, mu: 1.244e12, p: 31000, atmo: 50000, soi: 4.2e7, ap: 2.55e10, pe: 2.55e10, inc: 0.5 },
+            "Simetra": { r: 420000, mu: 1.05e11, p: 18000, atmo: 0, soi: 4.2e7, ap: 1.15e9, pe: 1.15e9, inc: 0.1 },
+            "Simeht": { r: 380000, mu: 9.2e10, p: 17000, atmo: 0, soi: 3.7e7, ap: 1.15e9, pe: 1.15e9, inc: 0.1 },
+            "Suluco": { r: 650000, mu: 4.25e12, p: 25000, atmo: 75000, soi: 9.2e7, ap: 1.44e10, pe: 1.44e10, inc: 0.2 },
+            "Uleg": { r: 500000, mu: 1.962e12, p: 52980, atmo: 50000, soi: 3.75e6, ap: 2.75e7, pe: 2.75e7, inc: 0.1 },
+            "Arorua": { r: 480000, mu: 1.544e12, p: 35000, atmo: 65000, soi: 2.55e7, ap: 8.55e9, pe: 8.55e9, inc: 0.25 }
+        },
+        "Moons": {
+            "Dipuc": { r: 15000, mu: 3.2e7, p: 9000, atmo: 0, soi: 28000, ap: 635000, pe: 635000, inc: 0.1 },
+            "Enots": { r: 12000, mu: 2.1e7, p: 8500, atmo: 0, soi: 22000, ap: 1.25e6, pe: 1.25e6, inc: 0.1 },
+            "Eulb": { r: 250000, mu: 3.1e11, p: 18000, atmo: 25000, soi: 5.2e7, ap: 8.44e8, pe: 7.44e8, inc: 0.3 },
+            "Elad": { r: 50000, mu: 7.2e9, p: 16000, atmo: 0, soi: 4.2e6, ap: 2.34e9, pe: 2.24e9, inc: 1.8 },
+            "Noi": { r: 18000, mu: 6.2e7, p: 10000, atmo: 0, soi: 28000, ap: 1.55e7, pe: 1.55e7, inc: 0.2 },
+            "Noyreg": { r: 38000, mu: 7.2e8, p: 28000, atmo: 0, soi: 105000, ap: 3.25e7, pe: 3.25e7, inc: 1.1 },
+            "Norihc": { r: 45000, mu: 9.2e8, p: 32000, atmo: 0, soi: 125000, ap: 1.25e7, pe: 1.25e7, inc: 0.5 },
+            "Noira": { r: 22000, mu: 1.244e8, p: 11000, atmo: 0, soi: 55000, ap: 3.75e6, pe: 3.75e6, inc: 0.2 },
+            "Tot": { r: 12000, mu: 2.2e7, p: 8000, atmo: 0, soi: 22000, ap: 235000, pe: 235000, inc: 0.1 }
+        }
+    }
+};
+
+
+function toggleMod(mod) {
+    activeMods[mod] = !activeMods[mod];
+    document.getElementById(`mod-${mod}`).classList.toggle('mod-active');
+    updateAll();
+}
+
+function setDatum(mode) {
+    currentDatum = mode;
+    document.getElementById('datum-asl').classList.toggle('active', mode === 'asl');
+    document.getElementById('datum-cog').classList.toggle('active', mode === 'cog');
+    document.getElementById('apLabel').innerText = mode === 'asl' ? 'Target Ap (Alt)' : 'Target Ap (Radius)';
+    document.getElementById('peLabel').innerText = mode === 'asl' ? 'Target Pe (Alt)' : 'Target Pe (Radius)';
+    updateAll();
+}
+
+function updateAll() {
+    const selects = ['parentSelect', 'targetASelect', 'targetBSelect'];
+    const currentVals = selects.map(id => document.getElementById(id).value);
+    
+    // UI Unit Sync Logic
+    const newUD = parseFloat(document.getElementById('unitSelect').value);
+    const ratio = lastUD / newUD;
+    const apIn = document.getElementById('apIn');
+    const peIn = document.getElementById('peIn');
+    
+    if (apIn.value) apIn.value = (parseFloat(apIn.value) * ratio).toFixed(2);
+    if (peIn.value) peIn.value = (parseFloat(peIn.value) * ratio).toFixed(2);
+    lastUD = newUD;
+
+    selects.forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '';
+        const categories = ['stock', ...(activeMods.opm ? ['opm'] : []), ...(activeMods.kcal ? ['kcal'] : [])];
+
+        categories.forEach(cat => {
+            for (const grp in bodyData[cat]) {
+                const optGroup = document.createElement('optgroup');
+                optGroup.label = `${cat.toUpperCase()} - ${grp}`;
+                for (const body in bodyData[cat][grp]) { optGroup.appendChild(new Option(body, body)); }
+                sel.appendChild(optGroup);
+            }
+        });
+    });
+
+    document.getElementById('parentSelect').value = currentVals[0] || "Kerbin";
+    document.getElementById('targetASelect').value = currentVals[1] || "Mun";
+    document.getElementById('targetBSelect').value = currentVals[2] || "Minmus";
+    
+    renderInfo('parent'); renderInfo('targetA'); renderInfo('targetB'); calculate();
+}
+
+function getBody(name) {
+    for (const cat in bodyData) {
+        for (const grp in bodyData[cat]) { if (bodyData[cat][grp][name]) return bodyData[cat][grp][name]; }
+    }
+    return null;
+}
+
+function formatDist(m, uD) {
+    if (m === 0) return "0.00 " + (uD == 1 ? "m" : (uD == 1000 ? "km" : "Mm"));
+    if (Math.abs(m) > 1e9 && uD >= 1000) return (m / 1e9).toLocaleString(undefined, {minimumFractionDigits: 3, maximumFractionDigits: 3}) + ' Gm';
+    const val = m / uD;
+    const unit = uD == 1 ? "m" : (uD == 1000 ? "km" : "Mm");
+    return val.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + unit;
+}
+
+function renderInfo(type) {
+    const b = getBody(document.getElementById(type + 'Select').value);
+    const scale = parseFloat(document.getElementById('scaleSelect').value);
+    const uD = parseFloat(document.getElementById('unitSelect').value);
+    if (!b) return;
+
+    const parentB = getBody(document.getElementById('parentSelect').value);
+    const parentR = parentB ? parentB.r * scale : 0;
+
+    const r = b.r * scale, mu = b.mu * scale, soi = b.soi * scale;
+    const ecc = (b.ap + b.pe) > 0 ? (b.ap - b.pe) / (b.ap + b.pe) : 0;
+    
+    // Sync Alt Datum Logic
+    const syncRadius = Math.pow(mu * Math.pow(b.p / (2 * Math.PI), 2), 1/3);
+    const syncDisp = currentDatum === 'asl' ? syncRadius - r : syncRadius;
+    
+    // Velocity Math
+    const vEscape = Math.sqrt((2 * mu) / r);
+    const vOrbit = Math.sqrt(mu / r);
+    
+    const orbitDtm = (type === 'parent') ? (currentDatum === 'asl' ? r : 0) : (currentDatum === 'asl' ? parentR : 0);
+
+    document.getElementById(type + 'Ref').innerHTML = `
+        <div class="ref-row"><span>Radius</span><span class="highlight">${formatDist(r, uD)}</span></div>
+        <div class="ref-row"><span>Mu (μ)</span><span class="highlight">${mu.toExponential(4)}</span></div>
+        <div class="ref-row"><span>Rotation</span><span class="highlight">${formatT(b.p)}</span></div>
+        <div class="ref-row"><span>SOI Radius</span><span class="highlight">${formatDist(soi, uD)}</span></div>
+        <div class="ref-row"><span>Sync Alt</span><span class="highlight">${syncRadius > r ? formatDist(syncDisp, uD) : 'N/A'}</span></div>
+        <div class="section-header">Orbital Parameters</div>
+        <div class="ref-row"><span>Apoapsis</span><span class="highlight">${formatDist((b.ap * scale) - orbitDtm, uD)}</span></div>
+        <div class="ref-row"><span>Periapsis</span><span class="highlight">${formatDist((b.pe * scale) - orbitDtm, uD)}</span></div>
+        <div class="ref-row"><span>Eccentricity</span><span class="highlight">${ecc.toFixed(4)}</span></div>
+        <div class="ref-row"><span>Inclination</span><span class="highlight">${b.inc.toFixed(2)}°</span></div>
+        <div class="ref-row"><span>Atmosphere</span><span class="highlight">${b.atmo > 0 ? formatDist(b.atmo * scale, uD) : 'None'}</span></div>
+        <div class="section-header">Surface Physics</div>
+        <div class="ref-row"><span>Escape Velocity</span><span class="highlight">${vEscape.toFixed(2)} m/s</span></div>
+        <div class="ref-row"><span>Orbital Speed</span><span class="highlight">${vOrbit.toFixed(2)} m/s</span></div>
+    `;
+}
+
+function calculate() {
+    const name = document.getElementById('parentSelect').value;
+    const b = getBody(name);
+    if (!b) return;
+
+    const scale = parseFloat(document.getElementById('scaleSelect').value);
+    const uD = parseFloat(document.getElementById('unitSelect').value);
+    const r = b.r * scale, mu = b.mu * scale;
+    const manType = document.getElementById('manType').value;
+    const s = parseInt(document.getElementById('vessels').value) || 1;
+    
+    let ap = parseFloat(document.getElementById('apIn').value) * uD;
+    let pe = parseFloat(document.getElementById('peIn').value) * uD;
+    if (currentDatum === 'asl') { ap += r; pe += r; }
+
+    const smaT = (ap + pe) / 2;
+    const pT = 2 * Math.PI * Math.sqrt(Math.pow(smaT, 3) / mu);
+    const pR = pT * ((manType === 'dive') ? (s - 1) / s : (s + 1) / s);
+    const smaR = Math.pow(mu * Math.pow(pR / (2 * Math.PI), 2), 1 / 3);
+    
+    let resAp, resPe;
+    if (manType === 'dive') { resAp = ap; resPe = (2 * smaR) - ap; } 
+    else { resPe = pe; resAp = (2 * smaR) - pe; }
+
+    const dtm = currentDatum === 'asl' ? r : 0;
+    const antV = (parseFloat(document.getElementById('antVessel').value) || 0) * 1e6;
+    const antD = parseFloat(document.getElementById('antDSN').value) || 0;
+    const chord = 2 * smaT * Math.sin(Math.PI / s);
+
+    document.getElementById('calcResults').innerHTML = `
+        <div class="section-header">Deployment Results</div>
+        <div class="ref-row"><span>Target Period</span><span class="highlight">${formatT(pT)}</span></div>
+        <div class="ref-row"><span>Target Ap</span><span class="highlight">${formatDist(ap - dtm, uD)}</span></div>
+        <div class="ref-row"><span>Target Pe</span><span class="highlight">${formatDist(pe - dtm, uD)}</span></div>
+        <div class="section-header" style="color:var(--accent-green)">Flight Computer</div>
+        <div class="ref-row"><span>Resonant Period</span><span class="highlight">${formatT(pR)}</span></div>
+        <div class="ref-row"><span>Resonant Ap</span><span class="highlight">${formatDist(resAp - dtm, uD)}</span></div>
+        <div class="ref-row"><span>Resonant Pe</span><span class="highlight">${formatDist(resPe - dtm, uD)}</span></div>
+        <div class="section-header">Comms (30% Strength)</div>
+        <div class="ref-row"><span>Inter-Sat Dist</span><span class="highlight">${formatDist(chord, uD)}</span></div>
+        <div class="ref-row"><span>Safe (V-V)</span><span class="highlight">${formatDist(0.64 * antV, uD)}</span></div>
+        <div class="ref-row"><span>Safe (DSN)</span><span class="highlight">${formatDist(0.64 * Math.sqrt(antV * antD), uD)}</span></div>
+    `;
+
+    drawOrbitDiagram(r, smaT, resAp, resPe, (b.atmo || 0) * scale, s);
+}
+
+function drawOrbitDiagram(radius, smaT, resAp, resPe, atmoHeight, s) {
+    const canvas = document.getElementById('orbitCanvas');
+    const ctx = canvas.getContext('2d');
+    const cX = canvas.width / 2, cY = canvas.height / 2;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const maxExtent = Math.max(smaT, resAp, resPe);
+    const drawScale = (canvas.width / 2 * 0.88) / maxExtent;
+
+    // Body & Atmo
+    ctx.beginPath(); ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(248, 81, 73, 0.4)';
+    ctx.arc(cX, cY, (radius + atmoHeight) * drawScale, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]); ctx.beginPath(); ctx.fillStyle = '#58a6ff';
+    ctx.arc(cX, cY, radius * drawScale, 0, Math.PI * 2); ctx.fill();
+
+    // Orbits
+    ctx.beginPath(); ctx.strokeStyle = '#30363d'; ctx.arc(cX, cY, smaT * drawScale, 0, Math.PI * 2); ctx.stroke();
+    const resSMA = (resAp + resPe) / 2, ecc = Math.abs(resAp - resPe) / (resAp + resPe);
+    const fOffset = (resSMA * ecc) * drawScale * (resAp > resPe ? 1 : -1);
+    ctx.beginPath(); ctx.strokeStyle = '#f2cc60';
+    ctx.ellipse(cX, cY + fOffset, Math.sqrt(resAp * resPe) * drawScale, resSMA * drawScale, 0, 0, Math.PI * 2); ctx.stroke();
+
+    // Satellites & Chords
+    const satCoords = [];
+    for(let i=0; i<s; i++) {
+        const ang = (i * 2 * Math.PI / s) - Math.PI/2;
+        const x = cX + (smaT * drawScale) * Math.cos(ang), y = cY + (smaT * drawScale) * Math.sin(ang);
+        satCoords.push({x, y});
+    }
+    ctx.strokeStyle = 'rgba(63, 185, 80, 0.3)'; ctx.beginPath();
+    for(let i=0; i<s; i++) {
+        ctx.moveTo(satCoords[i].x, satCoords[i].y);
+        ctx.lineTo(satCoords[(i+1)%s].x, satCoords[(i+1)%s].y);
+    }
+    ctx.stroke();
+    ctx.fillStyle = '#3fb950';
+    satCoords.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); });
+}
+
+function formatT(s) {
+    if (!s || isNaN(s)) return "0.00s | 0y 0d 0h 0m 0.00s";
+    
+    // Total raw seconds formatted
+    const rawStr = s.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + "s";
+    
+    // KSP Standard Time Conversion
+    // 1 Year = 426 days = 9,201,600 seconds
+    // 1 Day = 6 hours = 21,600 seconds
+    const y = Math.floor(s / 9201600);
+    const d = Math.floor((s % 9201600) / 21600);
+    const h = Math.floor((s % 21600) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = (s % 60).toFixed(2);
+    
+    let fmt = "";
+    if (y > 0) fmt += `${y}y `;
+    if (y > 0 || d > 0) fmt += `${d}d `;
+    if (y > 0 || d > 0 || h > 0) fmt += `${h}h `;
+    if (y > 0 || d > 0 || h > 0 || m > 0) fmt += `${m}m `;
+    fmt += `${sec}s`;
+    
+    return `${rawStr} | ${fmt}`;
+}
+
+window.onload = updateAll;
+</script>
+</body>
+</html>
